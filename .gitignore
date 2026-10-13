@@ -10,6 +10,9 @@ __pycache__/
 env/
 venv/
 .venv/
+*.egg-info/
+build/
+dist/
 
 # Environment Variables
 .env

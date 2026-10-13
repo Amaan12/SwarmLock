@@ -123,10 +123,15 @@
         ? `<span class="reason-text">${escapeHtml(lock.reason)}</span>`
         : `<span class="reason-empty">No reason specified</span>`;
 
+      const wsBadge = lock.workspace
+        ? `<span class="ws-badge" title="Project: ${escapeHtml(lock.workspace_root || lock.workspace)}">${escapeHtml(lock.workspace)}</span>`
+        : '';
+
       return `
         <tr data-norm-path="${escapeHtml(lock.norm_path)}">
           <td>
             <div class="path-cell">
+              ${wsBadge}
               <span class="path-icon">${pathIcon}</span>
               <span class="path-text" title="${escapeHtml(lock.path)}">${escapeHtml(lock.path || '(Project Root)')}</span>
             </div>
@@ -149,7 +154,7 @@
             </div>
           </td>
           <td style="text-align: right;">
-            <button class="btn-unlock" onclick="window.forceUnlock('${escapeJs(lock.path)}')">
+            <button class="btn-unlock" onclick="window.forceUnlock('${escapeJs(lock.path)}', '${escapeJs(lock.workspace_root)}')">
               Force Unlock
             </button>
           </td>
@@ -283,7 +288,7 @@
   }
 
   // Force Unlock Handler
-  window.forceUnlock = async function (path) {
+  window.forceUnlock = async function (path, wsRoot) {
     if (!confirm(`Are you sure you want to force unlock:\n\n${path}`)) {
       return;
     }
@@ -291,7 +296,7 @@
       const res = await fetch('/api/force-unlock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, operator: 'GUI-User' })
+        body: JSON.stringify({ path, workspace_root: wsRoot, operator: 'GUI-User' })
       });
       const data = await res.json();
       if (data.success) {

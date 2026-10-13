@@ -375,6 +375,18 @@ body {
   word-break: break-all;
 }
 
+.ws-badge {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 /* Agent Pill Badges */
 .agent-badge {
   display: inline-flex;

@@ -31,6 +31,8 @@ class Lock:
     acquired_at: float     # Unix timestamp of acquisition
     ttl_seconds: int       # Time-to-live in seconds
     pid: int = 0           # Process ID of acquiring process
+    workspace: str = ""    # Project / repository name (e.g. "SwarmLock", "MyGame")
+    workspace_root: str = "" # Canonical workspace root directory path
 
     @property
     def expires_at(self) -> float:
@@ -67,6 +69,8 @@ class Lock:
             acquired_at=float(data.get("acquired_at", time.time())),
             ttl_seconds=int(data.get("ttl_seconds", 1800)),
             pid=int(data.get("pid", 0)),
+            workspace=data.get("workspace", ""),
+            workspace_root=data.get("workspace_root", ""),
         )
 
 
@@ -117,8 +121,12 @@ class InterProcessLock:
 def find_workspace_root(start_dir: Optional[Path] = None) -> Path:
     """Finds the root directory of the workspace or git repository."""
     current = (start_dir or Path.cwd()).resolve()
+    home = Path.home().resolve()
     for parent in [current] + list(current.parents):
-        if (parent / ".git").exists() or (parent / ".swarmlock").exists():
+        if (parent / ".git").exists():
+            return parent
+        # Only treat local .swarmlock as workspace root if it is NOT the global ~/.swarmlock hub
+        if (parent / ".swarmlock").is_dir() and parent.resolve() != home:
             return parent
     return current
 
@@ -197,14 +205,32 @@ def format_duration(seconds: float) -> str:
     return f"{h}h {rem_m}m"
 
 
+GLOBAL_SWARMLOCK_DIR = (Path.home() / ".swarmlock").resolve()
+
+
 class LockManager:
     """
     Thread-safe & process-safe manager for file and directory locks.
+    Defaults to global machine-wide registry at ~/.swarmlock/locks.json.
     """
 
-    def __init__(self, workspace_root: Optional[Path] = None):
+    def __init__(
+        self,
+        workspace_root: Optional[Path] = None,
+        data_dir: Optional[Path] = None,
+        use_global: bool = True
+    ):
         self.workspace_root = (workspace_root or find_workspace_root()).resolve()
-        self.data_dir = self.workspace_root / ".swarmlock"
+        self.workspace_name = self.workspace_root.name or "Default"
+        if data_dir is not None:
+            self.data_dir = data_dir.resolve()
+        elif os.environ.get("SWARMLOCK_DATA_DIR"):
+            self.data_dir = Path(os.environ["SWARMLOCK_DATA_DIR"]).resolve()
+        elif use_global:
+            self.data_dir = GLOBAL_SWARMLOCK_DIR
+        else:
+            self.data_dir = self.workspace_root / ".swarmlock"
+
         self.state_file = self.data_dir / "locks.json"
         self.lock_file = self.data_dir / "locks.lock"
         self.log_file = self.data_dir / "events.log"
@@ -213,10 +239,23 @@ class LockManager:
     def _ensure_dir(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
+    def _same_workspace(self, ws1: Optional[str], ws2: Optional[str]) -> bool:
+        if not ws1 or not ws2:
+            return True
+        try:
+            return Path(ws1).resolve().as_posix().lower() == Path(ws2).resolve().as_posix().lower()
+        except Exception:
+            return ws1.lower() == ws2.lower()
+
+    def _make_key(self, norm_path: str, ws_root: Optional[str] = None) -> str:
+        ws = (ws_root or self.workspace_root.as_posix()).lower()
+        return f"{ws}::{norm_path}"
+
     def _log_event(self, action: str, path: str, agent: str, reason: str = "", extra: str = "") -> None:
         """Appends an event to the audit log."""
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        entry = f"[{timestamp}] {action.upper():<12} path='{path}' agent='{agent}' reason='{reason}' {extra}\n"
+        ws_tag = f"[{self.workspace_name}] "
+        entry = f"[{timestamp}] {action.upper():<12} ws='{self.workspace_name}' path='{path}' agent='{agent}' reason='{reason}' {extra}\n"
         try:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(entry)
@@ -236,7 +275,8 @@ class LockManager:
             for k, v in data.items():
                 lock = Lock.from_dict(v)
                 if not lock.is_expired(now):
-                    locks[k] = lock
+                    key = k if "::" in k else f"{(lock.workspace_root or self.workspace_root.as_posix()).lower()}::{lock.norm_path}"
+                    locks[key] = lock
                 else:
                     self._log_event("EXPIRED", lock.path, lock.agent, lock.reason, f"elapsed={format_duration(lock.time_elapsed(now))}")
             return locks
@@ -272,13 +312,19 @@ class LockManager:
         """
         display_path, norm_path, is_dir = normalize_target_path(raw_path, self.workspace_root)
         ttl_seconds = max(60, int(ttl_minutes * 60))
+        my_ws = self.workspace_root.as_posix().lower()
+        lock_key = self._make_key(norm_path)
 
         with InterProcessLock(self.lock_file):
             locks = self._load_locks()
             now = time.time()
 
-            # Check for conflict with existing active locks
+            # Check for conflict with existing active locks in the same workspace
             for key, existing in list(locks.items()):
+                # Cross-project isolation: only check conflict if within the same workspace!
+                if not self._same_workspace(existing.workspace_root, my_ws):
+                    continue
+
                 if paths_conflict(norm_path, existing.norm_path):
                     # Check if exact lock held by the same agent -> lease renewal
                     if norm_path == existing.norm_path and existing.agent.strip().lower() == agent.strip().lower():
@@ -288,13 +334,13 @@ class LockManager:
                             existing.reason = reason
                         self._save_locks(locks)
                         self._log_event("RENEWED", display_path, agent, reason, f"ttl={ttl_minutes}m")
-                        return True, existing, f"Lease renewed for '{display_path}' by '{agent}' (expires in {format_duration(existing.time_left(now))})"
+                        return True, existing, f"Lease renewed for '[{self.workspace_name}] {display_path}' by '{agent}' (expires in {format_duration(existing.time_left(now))})"
 
                     # Otherwise, true conflict!
                     left_str = format_duration(existing.time_left(now))
                     rel_type = "same file" if norm_path == existing.norm_path else ("parent directory" if norm_path.startswith(existing.norm_path + "/") else "child item")
                     msg = (
-                        f"LOCKED: '{display_path}' conflicts with {rel_type} '{existing.path}' "
+                        f"LOCKED: '[{self.workspace_name}] {display_path}' conflicts with {rel_type} '{existing.path}' "
                         f"held by agent '{existing.agent}' "
                         f"(Reason: '{existing.reason or 'None'}'; Expires in {left_str})"
                     )
@@ -310,11 +356,13 @@ class LockManager:
                 acquired_at=now,
                 ttl_seconds=ttl_seconds,
                 pid=os.getpid(),
+                workspace=self.workspace_name,
+                workspace_root=self.workspace_root.as_posix(),
             )
-            locks[norm_path] = new_lock
+            locks[lock_key] = new_lock
             self._save_locks(locks)
             self._log_event("ACQUIRED", display_path, agent, reason, f"ttl={ttl_minutes}m")
-            return True, new_lock, f"ACQUIRED: '{display_path}' locked by '{agent}' (TTL: {ttl_minutes}m)"
+            return True, new_lock, f"ACQUIRED: '[{self.workspace_name}] {display_path}' locked by '{agent}' (TTL: {ttl_minutes}m)"
 
     def release(
         self,
@@ -328,18 +376,19 @@ class LockManager:
             (success: bool, message: str)
         """
         display_path, norm_path, _ = normalize_target_path(raw_path, self.workspace_root)
+        my_ws = self.workspace_root.as_posix().lower()
+        lock_key = self._make_key(norm_path)
 
         with InterProcessLock(self.lock_file):
             locks = self._load_locks()
 
-            # Find matching lock
-            existing = locks.get(norm_path)
+            # Find matching lock in current workspace
+            existing = locks.get(lock_key)
             if not existing:
-                # Check if raw_path matches display path in case normalized keys differ
                 for k, lk in list(locks.items()):
-                    if lk.path == display_path or lk.norm_path == norm_path:
+                    if self._same_workspace(lk.workspace_root, my_ws) and (lk.path == display_path or lk.norm_path == norm_path):
                         existing = lk
-                        norm_path = k
+                        lock_key = k
                         break
 
             if not existing:
@@ -365,11 +414,11 @@ class LockManager:
                 )
 
             # Remove lock
-            del locks[norm_path]
+            del locks[lock_key]
             self._save_locks(locks)
             action_type = "FORCE_RELEASE" if force and not is_owner else "RELEASE"
             self._log_event(action_type, existing.path, agent, existing.reason)
-            return True, f"RELEASED: Lock on '{existing.path}' has been released."
+            return True, f"RELEASED: Lock on '[{self.workspace_name}] {existing.path}' has been released."
 
     def force_release(self, raw_path: str, operator: str = "Admin") -> tuple[bool, str]:
         """Forcefully releases a lock regardless of holder."""
@@ -377,41 +426,56 @@ class LockManager:
 
     def check(self, raw_path: str) -> tuple[bool, Optional[Lock], str]:
         """
-        Checks whether raw_path is free to lock or currently blocked.
+        Checks whether raw_path is free to lock or currently blocked in current workspace.
         Returns:
             (is_free: bool, conflicting_lock: Optional[Lock], message: str)
         """
         display_path, norm_path, _ = normalize_target_path(raw_path, self.workspace_root)
+        my_ws = self.workspace_root.as_posix().lower()
 
         with InterProcessLock(self.lock_file):
             locks = self._load_locks()
             now = time.time()
 
             for existing in locks.values():
+                if not self._same_workspace(existing.workspace_root, my_ws):
+                    continue
+
                 if paths_conflict(norm_path, existing.norm_path):
                     left_str = format_duration(existing.time_left(now))
                     return (
                         False,
                         existing,
-                        f"LOCKED by '{existing.agent}' (Target: '{existing.path}', Reason: '{existing.reason or 'None'}', Expires in {left_str})"
+                        f"LOCKED by '{existing.agent}' (Target: '[{existing.workspace}] {existing.path}', Reason: '{existing.reason or 'None'}', Expires in {left_str})"
                     )
 
             return True, None, "FREE"
 
-    def list_locks(self) -> list[Lock]:
-        """Returns all currently active non-expired locks."""
+    def list_locks(self, workspace_filter: Optional[str] = None) -> list[Lock]:
+        """Returns active locks. If workspace_filter is None, returns ALL locks across all projects."""
         with InterProcessLock(self.lock_file):
             locks = self._load_locks()
             self._save_locks(locks)  # Persist purge of any expired locks
-            return sorted(locks.values(), key=lambda l: l.acquired_at)
+            result = []
+            for lk in locks.values():
+                if workspace_filter:
+                    if not self._same_workspace(lk.workspace_root, workspace_filter):
+                        continue
+                result.append(lk)
+            return sorted(result, key=lambda l: l.acquired_at)
 
-    def clear(self, agent: Optional[str] = None) -> int:
+    def clear(self, agent: Optional[str] = None, current_workspace_only: bool = False) -> int:
         """Clears locks. If agent is provided, clears locks held by that agent or agent session."""
+        my_ws = self.workspace_root.as_posix().lower()
         with InterProcessLock(self.lock_file):
             locks = self._load_locks()
             count = 0
             remaining = {}
             for k, lk in locks.items():
+                if current_workspace_only and not self._same_workspace(lk.workspace_root, my_ws):
+                    remaining[k] = lk
+                    continue
+
                 if agent is None:
                     match = True
                 else:

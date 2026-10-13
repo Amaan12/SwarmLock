@@ -129,11 +129,45 @@ def resolve_agent_identity(agent: str, session: Optional[str] = None) -> str:
     return clean_agent
 
 
+def api_request(endpoint: str, data: Optional[dict] = None) -> Optional[dict]:
+    """Attempts fast local HTTP API call to running SwarmLock server."""
+    try:
+        import json
+        import urllib.request
+        url = f"http://127.0.0.1:{DEFAULT_PORT}{endpoint}"
+        body = json.dumps(data).encode("utf-8") if data is not None else None
+        headers = {"Content-Type": "application/json"} if body else {}
+        req = urllib.request.Request(url, data=body, headers=headers)
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
 def cmd_acquire(args: argparse.Namespace, manager: LockManager) -> int:
+    agent_id = resolve_agent_identity(args.agent, getattr(args, "session", None))
+
+    # Fast path: If server is running on 7890, call API for instant SSE update!
+    if is_gui_server_running() and not os.environ.get("SWARMLOCK_DATA_DIR"):
+        res = api_request("/api/acquire", {
+            "path": args.path,
+            "agent": agent_id,
+            "reason": args.reason or "",
+            "ttl": args.ttl or 30,
+            "workspace_root": str(manager.workspace_root),
+        })
+        if res:
+            if res.get("success"):
+                print(res.get("message", "ACQUIRED"))
+                return 0
+            else:
+                print(res.get("message", "LOCKED"), file=sys.stderr)
+                return 1
+
+    # Server not yet running: auto-boot if enabled and write to global store
     if not args.no_auto_boot:
         ensure_gui_running_silently(workspace_root=manager.workspace_root)
 
-    agent_id = resolve_agent_identity(args.agent, getattr(args, "session", None))
     success, lock, message = manager.acquire(
         raw_path=args.path,
         agent=agent_id,
@@ -150,10 +184,27 @@ def cmd_acquire(args: argparse.Namespace, manager: LockManager) -> int:
 
 
 def cmd_release(args: argparse.Namespace, manager: LockManager) -> int:
+    agent_id = resolve_agent_identity(args.agent, getattr(args, "session", None))
+
+    # Fast path: If server is running on 7890, call API for instant SSE update!
+    if is_gui_server_running() and not os.environ.get("SWARMLOCK_DATA_DIR"):
+        res = api_request("/api/release", {
+            "path": args.path,
+            "agent": agent_id,
+            "force": args.force,
+            "workspace_root": str(manager.workspace_root),
+        })
+        if res:
+            if res.get("success"):
+                print(res.get("message", "RELEASED"))
+                return 0
+            else:
+                print(res.get("message", "PERMISSION DENIED"), file=sys.stderr)
+                return 1
+
     if not args.no_auto_boot:
         ensure_gui_running_silently(workspace_root=manager.workspace_root)
 
-    agent_id = resolve_agent_identity(args.agent, getattr(args, "session", None))
     success, message = manager.release(
         raw_path=args.path,
         agent=agent_id,
@@ -191,16 +242,17 @@ def cmd_list(args: argparse.Namespace, manager: LockManager) -> int:
         return 0
 
     now = time.time()
-    # Print formatted ASCII table
-    headers = ["TARGET PATH", "HOLDING AGENT", "REASON", "ELAPSED", "TTL LEFT"]
+    # Print formatted ASCII table with Workspace column
+    headers = ["WORKSPACE", "TARGET PATH", "HOLDING AGENT", "REASON", "ELAPSED", "TTL LEFT"]
     rows = []
     for lk in locks:
         elapsed = format_duration(lk.time_elapsed(now))
         left = format_duration(lk.time_left(now))
         rows.append([
+            lk.workspace or "Default",
             lk.path or "(Root)",
             lk.agent,
-            (lk.reason[:32] + "...") if len(lk.reason) > 35 else (lk.reason or "-"),
+            (lk.reason[:28] + "...") if len(lk.reason) > 31 else (lk.reason or "-"),
             elapsed,
             left,
         ])

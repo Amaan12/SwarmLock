@@ -17,7 +17,7 @@ from swarmlock.core import (
 class TestLockCore(unittest.TestCase):
     def setUp(self):
         self.test_dir = Path(tempfile.mkdtemp(prefix="swarmlock_test_"))
-        self.manager = LockManager(workspace_root=self.test_dir)
+        self.manager = LockManager(workspace_root=self.test_dir, data_dir=self.test_dir / ".swarmlock", use_global=False)
 
     def tearDown(self):
         shutil.rmtree(self.test_dir, ignore_errors=True)
@@ -138,7 +138,7 @@ class TestLockCore(unittest.TestCase):
 
         # Artificially expire the lock
         locks = self.manager._load_locks()
-        norm_key = "assets/temp.cs"
+        norm_key = self.manager._make_key("assets/temp.cs")
         locks[norm_key].acquired_at = time.time() - 3600  # 1 hour ago
         self.manager._save_locks(locks)
 

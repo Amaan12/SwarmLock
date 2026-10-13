@@ -181,8 +181,10 @@ class SwarmLockServer:
                 agent = data.get("agent", "Unknown")
                 reason = data.get("reason", "")
                 ttl_minutes = int(data.get("ttl", data.get("ttl_minutes", 30)))
+                ws_root = data.get("workspace_root")
+                mgr = LockManager(Path(ws_root) if ws_root else parent_self.workspace_root)
 
-                success, lock, msg = parent_self.lock_manager.acquire(
+                success, lock, msg = mgr.acquire(
                     target_path, agent=agent, reason=reason, ttl_minutes=ttl_minutes
                 )
                 parent_self.broadcast_update("acquire")
@@ -197,8 +199,10 @@ class SwarmLockServer:
                 target_path = data.get("path", "")
                 agent = data.get("agent", "")
                 force = bool(data.get("force", False))
+                ws_root = data.get("workspace_root")
+                mgr = LockManager(Path(ws_root) if ws_root else parent_self.workspace_root)
 
-                success, msg = parent_self.lock_manager.release(target_path, agent=agent, force=force)
+                success, msg = mgr.release(target_path, agent=agent, force=force)
                 parent_self.broadcast_update("release")
                 status_code = 200 if success else 403
                 self._json_response({"success": success, "message": msg}, status=status_code)
@@ -206,14 +210,18 @@ class SwarmLockServer:
             def _handle_post_force_unlock(self, data: dict[str, Any]) -> None:
                 target_path = data.get("path", "")
                 operator = data.get("operator", "GUI-User")
+                ws_root = data.get("workspace_root")
+                mgr = LockManager(Path(ws_root) if ws_root else parent_self.workspace_root)
 
-                success, msg = parent_self.lock_manager.force_release(target_path, operator=operator)
+                success, msg = mgr.force_release(target_path, operator=operator)
                 parent_self.broadcast_update("force-unlock")
                 self._json_response({"success": success, "message": msg})
 
             def _handle_post_clear(self, data: dict[str, Any]) -> None:
                 agent = data.get("agent")
-                cleared = parent_self.lock_manager.clear(agent=agent)
+                ws_root = data.get("workspace_root")
+                mgr = LockManager(Path(ws_root) if ws_root else parent_self.workspace_root)
+                cleared = mgr.clear(agent=agent)
                 parent_self.broadcast_update("clear")
                 self._json_response({"success": True, "cleared_count": cleared})
 
@@ -259,8 +267,8 @@ class SwarmLockServer:
         self.server = ThreadingHTTPServer(("127.0.0.1", self.port), Handler)
         self.running = True
 
-        # Write server runtime metadata
-        meta_file = self.workspace_root / ".swarmlock" / "server.json"
+        # Write server runtime metadata to global hub ~/.swarmlock/server.json
+        meta_file = parent_self.lock_manager.data_dir / "server.json"
         meta_file.parent.mkdir(parents=True, exist_ok=True)
         with open(meta_file, "w", encoding="utf-8") as f:
             json.dump({

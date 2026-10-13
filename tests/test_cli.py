@@ -19,11 +19,13 @@ class TestAgentLockCLI(unittest.TestCase):
 
     def run_cli(self, *args) -> tuple[int, str, str]:
         cmd = [sys.executable, str(self.cli_script), "--no-auto-boot"] + list(args)
+        env = dict(os.environ, SWARMLOCK_DATA_DIR=str(self.test_dir / ".swarmlock"))
         proc = subprocess.run(
             cmd,
             cwd=str(self.test_dir),
             capture_output=True,
             text=True,
+            env=env,
         )
         return proc.returncode, proc.stdout, proc.stderr
 
