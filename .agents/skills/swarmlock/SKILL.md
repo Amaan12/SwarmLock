@@ -20,24 +20,33 @@ Every conversation and sub-agent must identify itself using its session context 
 
 ## 🔒 The Three Golden Rules
 
-### 1. Lock-Before-Edit
-Before modifying, creating, or deleting any file:
+### 1. Lock-All-Upfront in One Go (Mandatory)
+Before modifying, creating, renaming, or deleting ANY file:
+- **Determine all files** you plan to work on during your task turn.
+- **Lock everything in one go upfront** before writing any code.
+- **NEVER** do incremental "lock file A -> edit -> unlock file A -> lock file B -> edit -> unlock file B" 10 times. Incremental locking causes race conditions, lock stomping, and wasted tool turns.
+
+Lock all planned files in a single batch command:
 ```bash
-swarmlock acquire <path> --agent "Antigravity" --session "<session_id>" --reason "<task_summary>"
+swarmlock acquire <path1> <path2> <path3> --agent "Antigravity" --session "<session_id>" --reason "<task_summary>"
 ```
-- If exit code `0`: Lock acquired. Proceed with edits.
-- If exit code `1`: File or parent directory is locked by another agent. **Do NOT touch the file.**
+- If all succeed (exit code `0`): All locks secured. Proceed with edits.
+- If any file is locked (exit code `1`): Immediately apply Rule 2 (Opportunistic Pivot).
 
 ### 2. Opportunistic Pivot Rule (Never Wait Idle)
-If your lock request is rejected because another agent or conversation holds it:
-- **Never sleep or loop waiting.**
+If a lock request is rejected because another agent or conversation holds it:
+- **Never sleep, loop, or poll waiting.**
 - **Immediately pivot** to other unblocked files or independent tasks in your plan.
 - Only re-check the locked file at the end of your turn before reporting progress.
 
-### 3. Release-On-Complete
-Once edits are finished and verified:
+### 3. Release-On-Complete (Batch Release)
+Once all edits across your task are finished and verified:
 ```bash
-swarmlock release <path> --agent "Antigravity" --session "<session_id>"
+swarmlock release <path1> <path2> <path3> --agent "Antigravity" --session "<session_id>"
+```
+Or clear all locks owned by your session:
+```bash
+swarmlock clear --agent "Antigravity" --session "<session_id>"
 ```
 
 ---
@@ -46,9 +55,10 @@ swarmlock release <path> --agent "Antigravity" --session "<session_id>"
 
 | Action | Command |
 |---|---|
-| **Acquire Lock** | `swarmlock acquire <path> --agent "Antigravity" --session "<id>" [--reason "<text>"] [--ttl <minutes>]` |
-| **Check Status** | `swarmlock check <path>` *(Exit 0: FREE, Exit 1: LOCKED)* |
-| **Release Lock** | `swarmlock release <path> --agent "Antigravity" --session "<id>"` |
+| **Batch Acquire Locks** | `swarmlock acquire <path1> [<path2> ...] --agent "Antigravity" --session "<id>" [--reason "<text>"] [--ttl <min>]` |
+| **Check Status** | `swarmlock check <path1> [<path2> ...]` *(Exit 0: FREE, Exit 1: LOCKED)* |
+| **Batch Release Locks** | `swarmlock release <path1> [<path2> ...] --agent "Antigravity" --session "<id>"` |
+| **Clear All My Locks** | `swarmlock clear --agent "Antigravity" --session "<id>"` |
 | **Force Release** | `swarmlock release <path> --agent "Antigravity" --force` |
 | **List Locks** | `swarmlock list` |
 | **Open GUI Dashboard** | `swarmlock gui` |

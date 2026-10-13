@@ -29,22 +29,27 @@ Always identify yourself using one of these two formats:
 
 ## 🔒 The Three Golden Rules
 
-### 1. Lock-Before-Edit (Mandatory)
-Before creating, editing, renaming, or deleting any file or directory, you **MUST** acquire an exclusive lock:
+### 1. Lock-All-Upfront in One Go (Mandatory)
+Before modifying, creating, renaming, or deleting ANY file:
+- **Determine all files** you plan to touch during your task turn.
+- **Lock everything in one go upfront** before writing any code.
+- **NEVER** do incremental "lock file A -> edit -> unlock file A -> lock file B -> edit -> unlock file B" 10 times. Incremental locking causes race conditions, lock stomping, and wasted tool turns.
+
+Lock all planned files in a single batch command:
 ```bash
-swarmlock acquire <path> --agent "<tool>" --session "<chat_id>" --reason "<short_task_description>"
+swarmlock acquire <path1> <path2> <path3> --agent "<tool>" --session "<chat_id>" --reason "<short_task_description>"
 ```
 *Example:*
 ```bash
-swarmlock acquire Assets/Scripts/Combat/PlayerCombat.cs --agent "Claude" --session "Combat" --reason "Refactoring attack combos"
+swarmlock acquire Assets/Scripts/Combat/PlayerCombat.cs Assets/Scripts/Combat/CombatStats.cs Assets/Scripts/UI/CombatHUD.cs --agent "Claude" --session "Combat" --reason "Refactoring attack combos and HUD"
 ```
-- If the command succeeds (exit code `0`), proceed with your edits.
-- If the command fails (exit code `1`), the path (or its parent directory/child files) is currently locked by another conversation or agent. **Do NOT modify the file.**
+- If all succeed (exit code `0`): All locks secured. Proceed with edits.
+- If any path fails (exit code `1`): The path is locked by another conversation or agent. Apply Rule 2 (Opportunistic Pivot).
 
 ---
 
 ### 2. The Opportunistic Pivot Rule (Never Wait Idle)
-If your lock request for a file is rejected because another conversation or agent holds it:
+If a lock request for a file is rejected because another conversation or agent holds it:
 - **DO NOT** sleep, poll, or loop waiting for the lock to become free.
 - **DO NOT** halt your turn or ask the user to intervene immediately.
 - **IMMEDIATELY PIVOT** to other independent files, tests, documentation, or subtasks in your plan.
@@ -55,14 +60,18 @@ If your lock request for a file is rejected because another conversation or agen
 
 ---
 
-### 3. Release-On-Complete (Mandatory)
-As soon as you finish editing and verifying a file (or before completing your response turn), you **MUST** release all locks you acquired:
+### 3. Release-On-Complete (Batch Release)
+As soon as you finish editing and verifying all files in your task (or before completing your response turn), release all acquired locks in one batch:
 ```bash
-swarmlock release <path> --agent "<tool>" --session "<chat_id>"
+swarmlock release <path1> <path2> <path3> --agent "<tool>" --session "<chat_id>"
 ```
 *Example:*
 ```bash
-swarmlock release Assets/Scripts/Combat/PlayerCombat.cs --agent "Claude" --session "Combat"
+swarmlock release Assets/Scripts/Combat/PlayerCombat.cs Assets/Scripts/Combat/CombatStats.cs Assets/Scripts/UI/CombatHUD.cs --agent "Claude" --session "Combat"
+```
+Or clear all locks owned by your session at once:
+```bash
+swarmlock clear --agent "<tool>" --session "<chat_id>"
 ```
 
 ---
@@ -71,12 +80,12 @@ swarmlock release Assets/Scripts/Combat/PlayerCombat.cs --agent "Claude" --sessi
 
 | Action | Command |
 |---|---|
-| **Acquire Lock** | `swarmlock acquire <path> --agent "<name>" [--session "<id>"] [--reason "<text>"] [--ttl <min>]` |
-| **Check Lock** | `swarmlock check <path>` *(Exits 0 if FREE, 1 if LOCKED)* |
-| **Release Lock** | `swarmlock release <path> --agent "<name>" [--session "<id>"]` |
+| **Batch Acquire Locks** | `swarmlock acquire <path1> [<path2> ...] --agent "<name>" [--session "<id>"] [--reason "<text>"] [--ttl <min>]` |
+| **Check Locks** | `swarmlock check <path1> [<path2> ...]` *(Exits 0 if ALL FREE, 1 if ANY LOCKED)* |
+| **Batch Release Locks** | `swarmlock release <path1> [<path2> ...] --agent "<name>" [--session "<id>"]` |
+| **Clear All My Locks** | `swarmlock clear --agent "<name>" [--session "<id>"]` |
 | **Force Release** | `swarmlock release <path> --agent "<name>" --force` *(Emergency only)* |
 | **List Locks** | `swarmlock list` |
-| **Clear My Locks** | `swarmlock clear --agent "<name>" [--session "<id>"]` |
 
 ---
 
@@ -93,25 +102,25 @@ swarmlock release Assets/Scripts/Combat/PlayerCombat.cs --agent "Claude" --sessi
 ```markdown
 # SwarmLock Multi-Agent Concurrency Protocol
 Before editing any file:
-1. Run `swarmlock acquire <path> --agent "Cursor" --session "<current_task_or_chat>" --reason "<task>"`
+1. Determine all files to edit and lock them in ONE GO upfront: `swarmlock acquire <path1> <path2> --agent "Cursor" --session "<current_task_or_chat>" --reason "<task>"`
 2. If locked (exit 1), do NOT wait idle. Opportunistically pivot to other independent files in your plan.
-3. When finished editing, run `swarmlock release <path> --agent "Cursor" --session "<current_task_or_chat>"`.
+3. When finished editing, batch release all locks: `swarmlock release <path1> <path2> --agent "Cursor" --session "<current_task_or_chat>"`.
 ```
 
 ### For Claude Code (`CLAUDE.md`)
 ```markdown
 # Multi-Agent File Locking
-Before modifying files, always acquire a lock with your session id:
-`swarmlock acquire <path> --agent "Claude" --session "<task_or_session>" --reason "<description>"`
+Before modifying files, always acquire all planned locks upfront in one batch:
+`swarmlock acquire <path1> <path2> --agent "Claude" --session "<task_or_session>" --reason "<description>"`
 If locked by another agent or session, pivot to unblocked files immediately without waiting.
-Release locks upon task completion:
-`swarmlock release <path> --agent "Claude" --session "<task_or_session>"`
+Release all locks upon task completion:
+`swarmlock release <path1> <path2> --agent "Claude" --session "<task_or_session>"`
 ```
 
 ### For Antigravity (`.gemini/rules.md` or System Instructions)
 ```markdown
 # Multi-Agent Coordination
-- Lock-Before-Edit: Acquire locks with `swarmlock acquire <path> --agent "Antigravity" --session "<conversation_or_subagent_role>" --reason "<reason>"` before modifying files.
+- Lock-All-Upfront: Lock all planned files in one go with `swarmlock acquire <path1> <path2> --agent "Antigravity" --session "<conversation_or_subagent_role>" --reason "<reason>"` before editing. Do not lock/unlock incrementally.
 - Opportunistic Pivot: If blocked, pivot immediately to independent files without idle polling.
-- Release-On-Complete: Always release locks with `swarmlock release <path> --agent "Antigravity" --session "<conversation_or_subagent_role>"`.
+- Release-On-Complete: Always batch release locks with `swarmlock release <path1> <path2> --agent "Antigravity" --session "<conversation_or_subagent_role>"`.
 ```

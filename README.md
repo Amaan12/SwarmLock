@@ -45,22 +45,30 @@ Once installed, the `swarmlock` command is globally available across your entire
 
 ## 💻 CLI Quickstart
 
-### 1. Acquire a Lock
+### 1. Acquire Locks (Single or Batch)
 ```bash
+# Single file
 swarmlock acquire Assets/Scripts/UI/Button.cs --agent "Claude" --session "Chat1" --reason "Refactoring button states"
+
+# Batch (Lock all files upfront in one go)
+swarmlock acquire Assets/Scripts/UI/Button.cs Assets/Scripts/UI/CombatHUD.cs --agent "Claude" --session "Chat1" --reason "Updating UI"
 ```
 - If free: prints confirmation and exits with code `0`.
 - If held: prints who holds it and exits with code `1`.
 
 ### 2. Check Lock Status
 ```bash
-swarmlock check Assets/Scripts/UI/Button.cs
+swarmlock check Assets/Scripts/UI/Button.cs Assets/Scripts/UI/CombatHUD.cs
 ```
 - Returns `FREE` (exit `0`) or `LOCKED by <agent>` (exit `1`).
 
-### 3. Release a Lock
+### 3. Release Locks (Single or Batch)
 ```bash
-swarmlock release Assets/Scripts/UI/Button.cs --agent "Claude" --session "Chat1"
+# Batch release
+swarmlock release Assets/Scripts/UI/Button.cs Assets/Scripts/UI/CombatHUD.cs --agent "Claude" --session "Chat1"
+
+# Or clear all locks owned by session
+swarmlock clear --agent "Claude" --session "Chat1"
 ```
 
 ### 4. List Active Locks Across All Workspaces
@@ -94,9 +102,9 @@ Add the rules from [SwarmLockSkill.md](file:///c:/Users/imama/Desktop/SwarmLock/
 - **Antigravity**: Paste into `.gemini/rules.md` or `.gemini/skills/SwarmLockSkill/SKILL.md`
 
 ### Core Rules:
-1. **Lock-Before-Edit**: Always acquire lock before touching code (`--agent <tool> --session <id>`).
-2. **Opportunistic Pivot**: If File A is locked by another agent, never wait idle. Immediately pivot to work on independent files in your task plan, and re-check File A at the end of the turn.
-3. **Release-On-Complete**: Release all acquired locks once done.
+1. **Lock-All-Upfront in One Go**: Determine all files to modify and acquire locks in a single batch before writing any code (`swarmlock acquire <p1> <p2> ...`). Never do incremental lock-edit-unlock loops.
+2. **Opportunistic Pivot**: If a file is locked by another agent, never wait idle. Immediately pivot to work on independent files in your task plan, and re-check at the end of the turn.
+3. **Release-On-Complete**: Batch release all acquired locks once task edits are complete.
 
 ---
 

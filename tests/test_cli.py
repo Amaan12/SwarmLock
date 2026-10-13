@@ -116,6 +116,30 @@ class TestAgentLockCLI(unittest.TestCase):
         rc, out, _ = self.run_cli("acquire", "Assets/Combat.cs", "--agent", "Claude", "--session", "Chat2")
         self.assertEqual(rc, 0)
 
+    def test_cli_batch_acquire_and_release(self):
+        # Batch acquire 3 files in one command
+        rc, out, err = self.run_cli(
+            "acquire", "FileA.txt", "FileB.txt", "FileC.txt",
+            "--agent", "Claude", "--session", "BatchWork", "--reason", "Batch refactor"
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn("FileA.txt", out)
+        self.assertIn("FileB.txt", out)
+        self.assertIn("FileC.txt", out)
+
+        # Verify all 3 are locked
+        rc, out, _ = self.run_cli("check", "FileA.txt", "FileB.txt", "FileC.txt")
+        self.assertEqual(rc, 1)
+
+        # Batch release all 3 in one command
+        rc, out, _ = self.run_cli("release", "FileA.txt", "FileB.txt", "FileC.txt", "--agent", "Claude", "--session", "BatchWork")
+        self.assertEqual(rc, 0)
+
+        # Now all 3 are free
+        rc, out, _ = self.run_cli("check", "FileA.txt", "FileB.txt", "FileC.txt")
+        self.assertEqual(rc, 0)
+        self.assertIn("FREE: 'FileA.txt'", out)
+
 
 if __name__ == "__main__":
     unittest.main()

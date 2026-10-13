@@ -144,90 +144,101 @@ def api_request(endpoint: str, data: Optional[dict] = None) -> Optional[dict]:
 
 def cmd_acquire(args: argparse.Namespace, manager: LockManager) -> int:
     agent_id = resolve_agent_identity(args.agent, getattr(args, "session", None))
+    paths = args.paths if isinstance(args.paths, list) else [args.paths]
 
-    # Fast path: If server is running on 7890, call API for instant SSE update!
-    if is_gui_server_running() and not os.environ.get("SWARMLOCK_DATA_DIR"):
-        res = api_request("/api/acquire", {
-            "path": args.path,
-            "agent": agent_id,
-            "reason": args.reason or "",
-            "ttl": args.ttl or 30,
-            "workspace_root": str(manager.workspace_root),
-        })
-        if res:
-            if res.get("success"):
-                print(res.get("message", "ACQUIRED"))
-                return 0
-            else:
-                print(res.get("message", "LOCKED"), file=sys.stderr)
-                return 1
-
-    # Server not yet running: auto-boot if enabled and write to global store
     if not args.no_auto_boot:
         ensure_gui_running_silently(workspace_root=manager.workspace_root)
 
-    success, lock, message = manager.acquire(
-        raw_path=args.path,
-        agent=agent_id,
-        reason=args.reason or "",
-        ttl_minutes=args.ttl or 30,
-    )
+    overall_rc = 0
+    for target_path in paths:
+        # Fast path: If server is running on 7890, call API for instant SSE update!
+        acquired_via_api = False
+        if is_gui_server_running() and not os.environ.get("SWARMLOCK_DATA_DIR"):
+            res = api_request("/api/acquire", {
+                "path": target_path,
+                "agent": agent_id,
+                "reason": args.reason or "",
+                "ttl": args.ttl or 30,
+                "workspace_root": str(manager.workspace_root),
+            })
+            if res:
+                acquired_via_api = True
+                if res.get("success"):
+                    print(res.get("message", "ACQUIRED"))
+                else:
+                    print(res.get("message", "LOCKED"), file=sys.stderr)
+                    overall_rc = 1
 
-    if success:
-        print(message)
-        return 0
-    else:
-        print(message, file=sys.stderr)
-        return 1
+        if not acquired_via_api:
+            success, lock, message = manager.acquire(
+                raw_path=target_path,
+                agent=agent_id,
+                reason=args.reason or "",
+                ttl_minutes=args.ttl or 30,
+            )
+            if success:
+                print(message)
+            else:
+                print(message, file=sys.stderr)
+                overall_rc = 1
+
+    return overall_rc
 
 
 def cmd_release(args: argparse.Namespace, manager: LockManager) -> int:
     agent_id = resolve_agent_identity(args.agent, getattr(args, "session", None))
-
-    # Fast path: If server is running on 7890, call API for instant SSE update!
-    if is_gui_server_running() and not os.environ.get("SWARMLOCK_DATA_DIR"):
-        res = api_request("/api/release", {
-            "path": args.path,
-            "agent": agent_id,
-            "force": args.force,
-            "workspace_root": str(manager.workspace_root),
-        })
-        if res:
-            if res.get("success"):
-                print(res.get("message", "RELEASED"))
-                return 0
-            else:
-                print(res.get("message", "PERMISSION DENIED"), file=sys.stderr)
-                return 1
+    paths = args.paths if isinstance(args.paths, list) else [args.paths]
 
     if not args.no_auto_boot:
         ensure_gui_running_silently(workspace_root=manager.workspace_root)
 
-    success, message = manager.release(
-        raw_path=args.path,
-        agent=agent_id,
-        force=args.force,
-    )
+    overall_rc = 0
+    for target_path in paths:
+        released_via_api = False
+        if is_gui_server_running() and not os.environ.get("SWARMLOCK_DATA_DIR"):
+            res = api_request("/api/release", {
+                "path": target_path,
+                "agent": agent_id,
+                "force": args.force,
+                "workspace_root": str(manager.workspace_root),
+            })
+            if res:
+                released_via_api = True
+                if res.get("success"):
+                    print(res.get("message", "RELEASED"))
+                else:
+                    print(res.get("message", "PERMISSION DENIED"), file=sys.stderr)
+                    overall_rc = 1
 
-    if success:
-        print(message)
-        return 0
-    else:
-        print(message, file=sys.stderr)
-        return 1
+        if not released_via_api:
+            success, message = manager.release(
+                raw_path=target_path,
+                agent=agent_id,
+                force=args.force,
+            )
+            if success:
+                print(message)
+            else:
+                print(message, file=sys.stderr)
+                overall_rc = 1
+
+    return overall_rc
 
 
 def cmd_check(args: argparse.Namespace, manager: LockManager) -> int:
     if not args.no_auto_boot:
         ensure_gui_running_silently(workspace_root=manager.workspace_root)
 
-    is_free, conf, message = manager.check(args.path)
-    if is_free:
-        print("FREE")
-        return 0
-    else:
-        print(message)
-        return 1
+    paths = args.paths if isinstance(args.paths, list) else [args.paths]
+    overall_rc = 0
+    for target_path in paths:
+        is_free, conf, message = manager.check(target_path)
+        if is_free:
+            print(f"FREE: '{target_path}'" if len(paths) > 1 else "FREE")
+        else:
+            print(message)
+            overall_rc = 1
+    return overall_rc
 
 
 def cmd_list(args: argparse.Namespace, manager: LockManager) -> int:
@@ -311,23 +322,23 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
     # acquire
-    p_acq = subparsers.add_parser("acquire", help="Acquire a lock on a file or directory")
-    p_acq.add_argument("path", help="Path to target file or directory")
+    p_acq = subparsers.add_parser("acquire", help="Acquire a lock on one or more files or directories")
+    p_acq.add_argument("paths", nargs="+", help="One or more paths to target files or directories")
     p_acq.add_argument("--agent", "-a", required=True, help="Name of agent acquiring the lock")
     p_acq.add_argument("--session", "-s", default=None, help="Unique conversation, chat, or sub-agent session ID")
     p_acq.add_argument("--reason", "-r", default="", help="Reason / task description for lock")
     p_acq.add_argument("--ttl", "-t", type=int, default=30, help="TTL in minutes (default: 30)")
 
     # release
-    p_rel = subparsers.add_parser("release", help="Release a lock on a file or directory")
-    p_rel.add_argument("path", help="Path to target file or directory")
+    p_rel = subparsers.add_parser("release", help="Release a lock on one or more files or directories")
+    p_rel.add_argument("paths", nargs="+", help="One or more paths to target files or directories")
     p_rel.add_argument("--agent", "-a", required=True, help="Name of agent releasing the lock")
     p_rel.add_argument("--session", "-s", default=None, help="Unique conversation, chat, or sub-agent session ID")
     p_rel.add_argument("--force", "-f", action="store_true", help="Force release regardless of owner")
 
     # check
-    p_chk = subparsers.add_parser("check", help="Check if a path is free or locked")
-    p_chk.add_argument("path", help="Path to target file or directory")
+    p_chk = subparsers.add_parser("check", help="Check if one or more paths are free or locked")
+    p_chk.add_argument("paths", nargs="+", help="One or more paths to target files or directories")
 
     # list
     p_lst = subparsers.add_parser("list", help="List all active locks in terminal table")
