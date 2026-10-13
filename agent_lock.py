@@ -45,44 +45,35 @@ def is_gui_server_running(port: int = DEFAULT_PORT, timeout: float = 0.02) -> bo
             return False
 
 
-def ensure_gui_running_silently(
+def ensure_gui_running(
     port: int = DEFAULT_PORT,
     workspace_root: Optional[Path] = None,
     minimized: bool = False
 ) -> None:
     """
-    Silently launches the GUI dashboard in the background if not already active.
-    Uses pythonw.exe on Windows to run without flashing a black console window,
-    while giving pywebview / WebView2 full access to the interactive desktop.
+    Launches the SwarmLock server and opens the dashboard directly in the browser
+    if the server is not already active on port 7890.
     """
     if is_gui_server_running(port):
         return
 
     root = (workspace_root or find_workspace_root()).resolve()
 
-    exe = sys.executable
-    if sys.platform == "win32":
-        pythonw = Path(sys.executable).parent / "pythonw.exe"
-        if pythonw.exists():
-            exe = str(pythonw)
-
     cmd = [
-        exe,
+        sys.executable,
         "-m",
         "swarmlock.gui",
         "--port",
         str(port),
+        "--browser",
     ]
-    if minimized:
-        cmd.append("--minimized")
 
     try:
         if sys.platform == "win32":
-            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            CREATE_NEW_CONSOLE = 0x00000010
             subprocess.Popen(
                 cmd,
-                creationflags=CREATE_NEW_PROCESS_GROUP,
-                close_fds=True,
+                creationflags=CREATE_NEW_CONSOLE,
                 cwd=str(root),
             )
         else:
@@ -94,9 +85,18 @@ def ensure_gui_running_silently(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+
+        # Give server up to 2.5s to bind port
+        t0 = time.time()
+        while time.time() - t0 < 2.5:
+            if is_gui_server_running(port, timeout=0.05):
+                break
+            time.sleep(0.05)
     except Exception:
-        # Non-fatal: Locking continues cleanly even if GUI cannot be spawned
         pass
+
+
+ensure_gui_running_silently = ensure_gui_running
 
 
 def resolve_agent_identity(agent: str, session: Optional[str] = None) -> str:
