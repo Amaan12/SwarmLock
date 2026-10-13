@@ -1,0 +1,12 @@
+{
+  "app_name": "LockTestApp",
+  "version": "1.0.0",
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "name": "locktest_db"
+  },
+  "security": {
+    "jwt_expiry_seconds": 3600
+  }
+}

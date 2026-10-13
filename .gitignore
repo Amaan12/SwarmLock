@@ -1,0 +1,22 @@
+# SwarmLock Runtime Data
+.swarmlock/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Environment Variables
+.env
+
+# Logs
+*.log
+
+# OS Metadata
+.DS_Store
+Thumbs.db
