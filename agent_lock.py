@@ -52,38 +52,36 @@ def ensure_gui_running_silently(
 ) -> None:
     """
     Silently launches the GUI dashboard in the background if not already active.
-    Uses Windows SW_SHOWNOACTIVATE (4) and DETACHED_PROCESS to ensure
-    it NEVER steals active keyboard focus from the user.
+    Uses pythonw.exe on Windows to run without flashing a black console window,
+    while giving pywebview / WebView2 full access to the interactive desktop.
     """
     if is_gui_server_running(port):
         return
 
     root = (workspace_root or find_workspace_root()).resolve()
 
+    exe = sys.executable
+    if sys.platform == "win32":
+        pythonw = Path(sys.executable).parent / "pythonw.exe"
+        if pythonw.exists():
+            exe = str(pythonw)
+
     cmd = [
-        sys.executable,
+        exe,
         "-m",
         "swarmlock.gui",
         "--port",
         str(port),
-        "--no-focus",
     ]
     if minimized:
         cmd.append("--minimized")
 
     try:
         if sys.platform == "win32":
-            SW_SHOWNOACTIVATE = 4
-            DETACHED_PROCESS = 0x00000008
             CREATE_NEW_PROCESS_GROUP = 0x00000200
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = SW_SHOWNOACTIVATE
-
             subprocess.Popen(
                 cmd,
-                creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
-                startupinfo=startupinfo,
+                creationflags=CREATE_NEW_PROCESS_GROUP,
                 close_fds=True,
                 cwd=str(root),
             )

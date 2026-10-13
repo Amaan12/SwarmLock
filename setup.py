@@ -7,6 +7,10 @@ setup(
     author="Amaan",
     packages=find_packages(),
     py_modules=["agent_lock"],
+    include_package_data=True,
+    package_data={
+        "swarmlock": ["static/*", "static/**/*"],
+    },
     install_requires=[
         "pywebview>=5.0.0",
     ],

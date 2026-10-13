@@ -19,12 +19,27 @@ Designed for teams running multiple AI coding agents (**Claude Code**, **Antigra
 
 ## 📦 Installation & Setup
 
-1. **Prerequisites**: Python 3.9+
-2. **Install Dependencies**:
+### Option A: Install from Local Clone
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/Amaan12/SwarmLock.git
+cd SwarmLock
+
+# On Windows:
+install.bat
+
+# On Linux / macOS:
+chmod +x install.sh && ./install.sh
+
+# Or directly via pip:
+pip install -e .
 ```
-*(Only `pywebview` is required for the native desktop window. If `pywebview` is omitted, SwarmLock automatically falls back to your default web browser.)*
+
+### Option B: Install Directly from GitHub (Zero Clone)
+```bash
+pip install git+https://github.com/Amaan12/SwarmLock.git
+```
+
+Once installed, the `swarmlock` command is globally available across your entire computer from any directory, terminal, or IDE chat.
 
 ---
 
@@ -32,38 +47,38 @@ pip install -r requirements.txt
 
 ### 1. Acquire a Lock
 ```bash
-python agent_lock.py acquire Assets/Scripts/UI/Button.cs --agent "Claude" --reason "Refactoring button states"
+swarmlock acquire Assets/Scripts/UI/Button.cs --agent "Claude" --session "Chat1" --reason "Refactoring button states"
 ```
 - If free: prints confirmation and exits with code `0`.
 - If held: prints who holds it and exits with code `1`.
 
 ### 2. Check Lock Status
 ```bash
-python agent_lock.py check Assets/Scripts/UI/Button.cs
+swarmlock check Assets/Scripts/UI/Button.cs
 ```
 - Returns `FREE` (exit `0`) or `LOCKED by <agent>` (exit `1`).
 
 ### 3. Release a Lock
 ```bash
-python agent_lock.py release Assets/Scripts/UI/Button.cs --agent "Claude"
+swarmlock release Assets/Scripts/UI/Button.cs --agent "Claude" --session "Chat1"
 ```
 
-### 4. List Active Locks
+### 4. List Active Locks Across All Workspaces
 ```bash
-python agent_lock.py list
+swarmlock list
 ```
 Displays a clean terminal table:
 ```
-+----------------------------+---------------+---------------------------+---------+----------+
-| TARGET PATH                | HOLDING AGENT | REASON                    | ELAPSED | TTL LEFT |
-+----------------------------+---------------+---------------------------+---------+----------+
-| Assets/Scripts/UI/Button.cs| Claude        | Refactoring button states | 2m 14s  | 27m 46s  |
-+----------------------------+---------------+---------------------------+---------+----------+
++-----------+-----------------------------+---------------+---------------------------+---------+----------+
+| WORKSPACE | TARGET PATH                 | HOLDING AGENT | REASON                    | ELAPSED | TTL LEFT |
++-----------+-----------------------------+---------------+---------------------------+---------+----------+
+| MyProject | Assets/Scripts/UI/Button.cs | Claude:Chat1  | Refactoring button states | 2m 14s  | 27m 46s  |
++-----------+-----------------------------+---------------+---------------------------+---------+----------+
 ```
 
 ### 5. Launch Desktop Dashboard Directly
 ```bash
-python agent_lock.py gui
+swarmlock gui
 ```
 Optional flags:
 - `--minimized`: Launch minimized in system taskbar
