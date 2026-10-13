@@ -23,7 +23,7 @@ Every conversation and sub-agent must identify itself using its session context 
 ### 1. Lock-Before-Edit
 Before modifying, creating, or deleting any file:
 ```bash
-python agent_lock.py acquire <path> --agent "Antigravity" --session "<session_id>" --reason "<task_summary>"
+swarmlock acquire <path> --agent "Antigravity" --session "<session_id>" --reason "<task_summary>"
 ```
 - If exit code `0`: Lock acquired. Proceed with edits.
 - If exit code `1`: File or parent directory is locked by another agent. **Do NOT touch the file.**
@@ -37,7 +37,7 @@ If your lock request is rejected because another agent or conversation holds it:
 ### 3. Release-On-Complete
 Once edits are finished and verified:
 ```bash
-python agent_lock.py release <path> --agent "Antigravity" --session "<session_id>"
+swarmlock release <path> --agent "Antigravity" --session "<session_id>"
 ```
 
 ---
@@ -46,12 +46,12 @@ python agent_lock.py release <path> --agent "Antigravity" --session "<session_id
 
 | Action | Command |
 |---|---|
-| **Acquire Lock** | `python agent_lock.py acquire <path> --agent "Antigravity" --session "<id>" [--reason "<text>"] [--ttl <minutes>]` |
-| **Check Status** | `python agent_lock.py check <path>` *(Exit 0: FREE, Exit 1: LOCKED)* |
-| **Release Lock** | `python agent_lock.py release <path> --agent "Antigravity" --session "<id>"` |
-| **Force Release** | `python agent_lock.py release <path> --agent "Antigravity" --force` |
-| **List Locks** | `python agent_lock.py list` |
-| **Open GUI Dashboard** | `python agent_lock.py gui` |
+| **Acquire Lock** | `swarmlock acquire <path> --agent "Antigravity" --session "<id>" [--reason "<text>"] [--ttl <minutes>]` |
+| **Check Status** | `swarmlock check <path>` *(Exit 0: FREE, Exit 1: LOCKED)* |
+| **Release Lock** | `swarmlock release <path> --agent "Antigravity" --session "<id>"` |
+| **Force Release** | `swarmlock release <path> --agent "Antigravity" --force` |
+| **List Locks** | `swarmlock list` |
+| **Open GUI Dashboard** | `swarmlock gui` |
 
 ---
 
