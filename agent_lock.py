@@ -2,9 +2,9 @@
 """SwarmLock CLI - Multi-Agent File & Directory Lock Coordinator.
 
 Usage:
-  python agent_lock.py acquire <path> --agent <name> [--reason <text>] [--ttl <minutes>]
-  python agent_lock.py release <path> --agent <name> [--force]
-  python agent_lock.py check <path>
+  python agent_lock.py acquire <path>... --agent <name> [--reason <text>] [--ttl <minutes>] [--wait <seconds>]
+  python agent_lock.py release <path>... --agent <name> [--force]
+  python agent_lock.py check <path>... [--wait <seconds>]
   python agent_lock.py list
   python agent_lock.py clear [--agent <name>] [--all]
   python agent_lock.py gui [--minimized] [--browser]
@@ -145,13 +145,18 @@ def api_request(endpoint: str, data: Optional[dict] = None) -> Optional[dict]:
 def cmd_acquire(args: argparse.Namespace, manager: LockManager) -> int:
     agent_id = resolve_agent_identity(args.agent, getattr(args, "session", None))
     paths = args.paths if isinstance(args.paths, list) else [args.paths]
+    wait_sec = max(0.0, getattr(args, "wait", 0.0) or 0.0)
+    poll_int = max(0.05, getattr(args, "poll_interval", 0.25) or 0.25)
 
     if not args.no_auto_boot:
         ensure_gui_running_silently(workspace_root=manager.workspace_root)
 
+    deadline = time.time() + wait_sec
     overall_rc = 0
+    contested_paths: dict[str, str] = {}
+
+    # Phase 1: Immediate attempt on all paths (lock unblocked files upfront without delay)
     for target_path in paths:
-        # Fast path: If server is running on 7890, call API for instant SSE update!
         acquired_via_api = False
         if is_gui_server_running() and not os.environ.get("SWARMLOCK_DATA_DIR"):
             res = api_request("/api/acquire", {
@@ -166,8 +171,12 @@ def cmd_acquire(args: argparse.Namespace, manager: LockManager) -> int:
                 if res.get("success"):
                     print(res.get("message", "ACQUIRED"))
                 else:
-                    print(res.get("message", "LOCKED"), file=sys.stderr)
-                    overall_rc = 1
+                    msg = res.get("message", "LOCKED")
+                    if wait_sec > 0.0:
+                        contested_paths[target_path] = msg
+                    else:
+                        print(msg, file=sys.stderr)
+                        overall_rc = 1
 
         if not acquired_via_api:
             success, lock, message = manager.acquire(
@@ -175,12 +184,66 @@ def cmd_acquire(args: argparse.Namespace, manager: LockManager) -> int:
                 agent=agent_id,
                 reason=args.reason or "",
                 ttl_minutes=args.ttl or 30,
+                timeout=0.0,
             )
             if success:
                 print(message)
             else:
-                print(message, file=sys.stderr)
-                overall_rc = 1
+                if wait_sec > 0.0:
+                    contested_paths[target_path] = message
+                else:
+                    print(message, file=sys.stderr)
+                    overall_rc = 1
+
+    # Phase 2: If --wait was requested and paths were contested, wait at process level
+    if contested_paths and wait_sec > 0.0:
+        still_contested = dict(contested_paths)
+        while still_contested and time.time() < deadline:
+            remaining = max(0.0, deadline - time.time())
+            sleep_chunk = min(poll_int, remaining)
+            if sleep_chunk > 0.0:
+                time.sleep(sleep_chunk)
+
+            newly_acquired: list[str] = []
+            for target_path in list(still_contested.keys()):
+                acquired_via_api = False
+                if is_gui_server_running() and not os.environ.get("SWARMLOCK_DATA_DIR"):
+                    res = api_request("/api/acquire", {
+                        "path": target_path,
+                        "agent": agent_id,
+                        "reason": args.reason or "",
+                        "ttl": args.ttl or 30,
+                        "workspace_root": str(manager.workspace_root),
+                    })
+                    if res:
+                        acquired_via_api = True
+                        if res.get("success"):
+                            print(res.get("message", "ACQUIRED"))
+                            newly_acquired.append(target_path)
+                        else:
+                            still_contested[target_path] = res.get("message", "LOCKED")
+
+                if not acquired_via_api:
+                    success, lock, message = manager.acquire(
+                        raw_path=target_path,
+                        agent=agent_id,
+                        reason=args.reason or "",
+                        ttl_minutes=args.ttl or 30,
+                        timeout=0.0,
+                    )
+                    if success:
+                        print(message)
+                        newly_acquired.append(target_path)
+                    else:
+                        still_contested[target_path] = message
+
+            for p in newly_acquired:
+                del still_contested[p]
+
+        # Any path still contested after deadline?
+        for target_path, last_msg in still_contested.items():
+            print(f"{last_msg} (Timed out after {wait_sec:.1f}s waiting for release)", file=sys.stderr)
+            overall_rc = 1
 
     return overall_rc
 
@@ -230,9 +293,12 @@ def cmd_check(args: argparse.Namespace, manager: LockManager) -> int:
         ensure_gui_running_silently(workspace_root=manager.workspace_root)
 
     paths = args.paths if isinstance(args.paths, list) else [args.paths]
+    wait_sec = max(0.0, getattr(args, "wait", 0.0) or 0.0)
+    poll_int = max(0.05, getattr(args, "poll_interval", 0.25) or 0.25)
+
     overall_rc = 0
     for target_path in paths:
-        is_free, conf, message = manager.check(target_path)
+        is_free, conf, message = manager.check(target_path, timeout=wait_sec, poll_interval=poll_int)
         if is_free:
             print(f"FREE: '{target_path}'" if len(paths) > 1 else "FREE")
         else:
@@ -328,6 +394,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_acq.add_argument("--session", "-s", default=None, help="Unique conversation, chat, or sub-agent session ID")
     p_acq.add_argument("--reason", "-r", default="", help="Reason / task description for lock")
     p_acq.add_argument("--ttl", "-t", type=int, default=30, help="TTL in minutes (default: 30)")
+    p_acq.add_argument("--wait", "-w", type=float, default=0.0, help="Wait up to N seconds for locked files to be released (default: 0, non-blocking)")
+    p_acq.add_argument("--poll-interval", type=float, default=0.25, help="Polling interval in seconds when --wait is specified (default: 0.25)")
 
     # release
     p_rel = subparsers.add_parser("release", help="Release a lock on one or more files or directories")
@@ -339,6 +407,8 @@ def build_parser() -> argparse.ArgumentParser:
     # check
     p_chk = subparsers.add_parser("check", help="Check if one or more paths are free or locked")
     p_chk.add_argument("paths", nargs="+", help="One or more paths to target files or directories")
+    p_chk.add_argument("--wait", "-w", type=float, default=0.0, help="Wait up to N seconds for paths to become free (default: 0, non-blocking)")
+    p_chk.add_argument("--poll-interval", type=float, default=0.25, help="Polling interval in seconds when --wait is specified (default: 0.25)")
 
     # list
     p_lst = subparsers.add_parser("list", help="List all active locks in terminal table")

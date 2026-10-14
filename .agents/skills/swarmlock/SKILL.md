@@ -18,7 +18,7 @@ Every conversation and sub-agent must identify itself using its session context 
 
 ---
 
-## 🔒 The Three Golden Rules
+## 🔒 The Four Golden Rules
 
 ### 1. Lock-All-Upfront in One Go (Mandatory)
 Before modifying, creating, renaming, or deleting ANY file:
@@ -33,13 +33,22 @@ swarmlock acquire <path1> <path2> <path3> --agent "Antigravity" --session "<sess
 - If all succeed (exit code `0`): All locks secured. Proceed with edits.
 - If any file is locked (exit code `1`): Immediately apply Rule 2 (Opportunistic Pivot).
 
-### 2. Opportunistic Pivot Rule (Never Wait Idle)
-If a lock request is rejected because another agent or conversation holds it:
-- **Never sleep, loop, or poll waiting.**
-- **Immediately pivot** to other unblocked files or independent tasks in your plan.
-- Only re-check the locked file at the end of your turn before reporting progress.
+### 2. Opportunistic Pivot Rule (Never Wait Upfront)
+If a batch lock request reveals that some files are locked while others are acquired:
+- **Never wait upfront:** Immediately proceed to edit all files you successfully acquired.
+- Do NOT loop, poll, or block while there are unblocked files ready to work on.
 
-### 3. Release-On-Complete (Batch Release)
+### 3. Contested Files at the End (CLI-Level Blocking Wait)
+Once all unblocked files have been edited, return to the remaining contested file(s) at the very end of your turn:
+- Use the `--wait <seconds>` flag (e.g. `--wait 30` or `--wait 60`) on the contested file(s).
+- The CLI process blocks at the OS level until the other session releases the lock, costing ZERO LLM reasoning tokens and requiring no active polling:
+```bash
+swarmlock acquire <contested_path> --wait 30 --agent "Antigravity" --session "<session_id>"
+```
+- If acquired within the timeout: complete the remaining edits.
+- If it times out: report partial completion and current blockage to the user without further turn-spinning.
+
+### 4. Release-On-Complete (Batch Release)
 Once all edits across your task are finished and verified:
 ```bash
 swarmlock release <path1> <path2> <path3> --agent "Antigravity" --session "<session_id>"
@@ -56,7 +65,8 @@ swarmlock clear --agent "Antigravity" --session "<session_id>"
 | Action | Command |
 |---|---|
 | **Batch Acquire Locks** | `swarmlock acquire <path1> [<path2> ...] --agent "Antigravity" --session "<id>" [--reason "<text>"] [--ttl <min>]` |
-| **Check Status** | `swarmlock check <path1> [<path2> ...]` *(Exit 0: FREE, Exit 1: LOCKED)* |
+| **Wait for Contested Lock** | `swarmlock acquire <path> --wait <seconds> --agent "Antigravity" --session "<id>"` *(Blocks at OS level)* |
+| **Check Status** | `swarmlock check <path1> [<path2> ...] [--wait <sec>]` *(Exit 0: FREE, Exit 1: LOCKED)* |
 | **Batch Release Locks** | `swarmlock release <path1> [<path2> ...] --agent "Antigravity" --session "<id>"` |
 | **Clear All My Locks** | `swarmlock clear --agent "Antigravity" --session "<id>"` |
 | **Force Release** | `swarmlock release <path> --agent "Antigravity" --force` |

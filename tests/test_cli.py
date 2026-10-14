@@ -140,6 +140,63 @@ class TestAgentLockCLI(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("FREE: 'FileA.txt'", out)
 
+    def test_cli_acquire_wait_success(self):
+        import threading
+        import time
+
+        # Agent1 acquires
+        rc, _, _ = self.run_cli("acquire", "Shared.cs", "--agent", "Agent1")
+        self.assertEqual(rc, 0)
+
+        # Agent1 releases after 0.25s in background thread
+        def delayed_release():
+            time.sleep(0.25)
+            self.run_cli("release", "Shared.cs", "--agent", "Agent1")
+
+        t = threading.Thread(target=delayed_release)
+        t.start()
+
+        # Agent2 acquires with --wait
+        t0 = time.time()
+        rc, out, err = self.run_cli("acquire", "Shared.cs", "--agent", "Agent2", "--wait", "2.0", "--poll-interval", "0.05")
+        t.join()
+
+        self.assertEqual(rc, 0)
+        self.assertIn("ACQUIRED", out)
+        self.assertGreaterEqual(time.time() - t0, 0.2)
+
+    def test_cli_acquire_wait_timeout(self):
+        # Agent1 acquires
+        rc, _, _ = self.run_cli("acquire", "NeverFreed.cs", "--agent", "Agent1")
+        self.assertEqual(rc, 0)
+
+        # Agent2 acquires with short --wait 0.25s
+        rc, out, err = self.run_cli("acquire", "NeverFreed.cs", "--agent", "Agent2", "--wait", "0.25", "--poll-interval", "0.05")
+        self.assertEqual(rc, 1)
+        self.assertIn("Timed out after 0.2s", err)
+
+    def test_cli_batch_immediate_unblocked_with_wait(self):
+        import time
+
+        # Agent1 locks Contested.cs
+        rc, _, _ = self.run_cli("acquire", "Contested.cs", "--agent", "Agent1")
+        self.assertEqual(rc, 0)
+
+        # Agent2 runs batch acquire with Free1.cs, Free2.cs and Contested.cs
+        rc, out, err = self.run_cli(
+            "acquire", "Free1.cs", "Free2.cs", "Contested.cs",
+            "--agent", "Agent2", "--wait", "0.2", "--poll-interval", "0.05"
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("Free1.cs", out)
+        self.assertIn("Free2.cs", out)
+        self.assertIn("Timed out after 0.2s", err)
+
+        # Verify Free1.cs and Free2.cs were indeed acquired by Agent2
+        rc, chk_out, _ = self.run_cli("check", "Free1.cs")
+        self.assertEqual(rc, 1)
+        self.assertIn("Agent2", chk_out)
+
 
 if __name__ == "__main__":
     unittest.main()

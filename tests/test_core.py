@@ -151,6 +151,56 @@ class TestLockCore(unittest.TestCase):
         ok, _, _ = self.manager.acquire("Assets/Temp.cs", agent="Antigravity")
         self.assertTrue(ok)
 
+    def test_acquire_with_timeout_success(self):
+        import threading
+        # Claude acquires
+        ok, _, _ = self.manager.acquire("Assets/WaitTest.cs", agent="Claude")
+        self.assertTrue(ok)
+
+        # Release in background thread after 0.2 seconds
+        def delayed_release():
+            time.sleep(0.2)
+            self.manager.release("Assets/WaitTest.cs", agent="Claude")
+
+        t = threading.Thread(target=delayed_release)
+        t.start()
+
+        # Cursor acquires with timeout=2.0s
+        t0 = time.time()
+        ok, lock, msg = self.manager.acquire("Assets/WaitTest.cs", agent="Cursor", timeout=2.0, poll_interval=0.05)
+        t.join()
+
+        self.assertTrue(ok)
+        self.assertGreaterEqual(time.time() - t0, 0.15)
+        self.assertEqual(lock.agent, "Cursor")
+
+    def test_acquire_with_timeout_failure(self):
+        # Claude acquires
+        ok, _, _ = self.manager.acquire("Assets/NeverReleased.cs", agent="Claude")
+        self.assertTrue(ok)
+
+        # Cursor acquires with short timeout=0.2s
+        t0 = time.time()
+        ok, lock, msg = self.manager.acquire("Assets/NeverReleased.cs", agent="Cursor", timeout=0.2, poll_interval=0.05)
+        self.assertFalse(ok)
+        self.assertGreaterEqual(time.time() - t0, 0.18)
+        self.assertIn("Timed out after 0.2s", msg)
+
+    def test_check_with_timeout(self):
+        import threading
+        self.manager.acquire("Assets/CheckWait.cs", agent="Claude")
+
+        def delayed_release():
+            time.sleep(0.2)
+            self.manager.release("Assets/CheckWait.cs", agent="Claude")
+
+        t = threading.Thread(target=delayed_release)
+        t.start()
+
+        is_free, _, _ = self.manager.check("Assets/CheckWait.cs", timeout=2.0, poll_interval=0.05)
+        t.join()
+        self.assertTrue(is_free)
+
 
 if __name__ == "__main__":
     unittest.main()

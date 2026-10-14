@@ -27,7 +27,7 @@ Always identify yourself using one of these two formats:
 
 ---
 
-## 🔒 The Three Golden Rules
+## 🔒 The Four Golden Rules
 
 ### 1. Lock-All-Upfront in One Go (Mandatory)
 Before modifying, creating, renaming, or deleting ANY file:
@@ -48,19 +48,31 @@ swarmlock acquire Assets/Scripts/Combat/PlayerCombat.cs Assets/Scripts/Combat/Co
 
 ---
 
-### 2. The Opportunistic Pivot Rule (Never Wait Idle)
-If a lock request for a file is rejected because another conversation or agent holds it:
-- **DO NOT** sleep, poll, or loop waiting for the lock to become free.
+### 2. The Opportunistic Pivot Rule (Never Wait Upfront)
+If a batch lock request reveals that some files are locked while others are successfully acquired:
+- **Never wait upfront:** Immediately proceed to edit all files you successfully acquired.
+- **DO NOT** sleep, poll, or loop waiting while there are unblocked files ready to work on.
 - **DO NOT** halt your turn or ask the user to intervene immediately.
-- **IMMEDIATELY PIVOT** to other independent files, tests, documentation, or subtasks in your plan.
-- Only re-check the locked file at the very end of your turn before reporting your progress to the user.
+- **IMMEDIATELY PIVOT** to work on the unblocked files, tests, documentation, or subtasks in your plan.
 
 *Pivot Example:*
-> *If `Assets/Scripts/UI/Menu.cs` is locked by Cursor:UI, immediately pivot to work on `Assets/Scripts/Audio/SoundManager.cs` or independent unit tests instead.*
+> *If `Assets/Scripts/UI/Menu.cs` is locked by Cursor:UI, immediately pivot to work on acquired `Assets/Scripts/Audio/SoundManager.cs` or independent unit tests instead.*
 
 ---
 
-### 3. Release-On-Complete (Batch Release)
+### 3. Contested Files at the End (CLI-Level Blocking Wait)
+Once all unblocked files have been edited, return to the remaining contested file(s) at the very end of your turn:
+- Use the `--wait <seconds>` flag (e.g. `--wait 30` or `--wait 60`) on the contested file(s).
+- The CLI process blocks at the OS level until the other session releases the lock, costing ZERO LLM reasoning tokens and requiring no polling loop:
+```bash
+swarmlock acquire <contested_path> --wait 30 --agent "<tool>" --session "<chat_id>"
+```
+- If acquired within the timeout: complete the remaining edits.
+- If it times out: report partial completion and current blockage to the user without further turn-spinning.
+
+---
+
+### 4. Release-On-Complete (Batch Release)
 As soon as you finish editing and verifying all files in your task (or before completing your response turn), release all acquired locks in one batch:
 ```bash
 swarmlock release <path1> <path2> <path3> --agent "<tool>" --session "<chat_id>"
@@ -81,7 +93,8 @@ swarmlock clear --agent "<tool>" --session "<chat_id>"
 | Action | Command |
 |---|---|
 | **Batch Acquire Locks** | `swarmlock acquire <path1> [<path2> ...] --agent "<name>" [--session "<id>"] [--reason "<text>"] [--ttl <min>]` |
-| **Check Locks** | `swarmlock check <path1> [<path2> ...]` *(Exits 0 if ALL FREE, 1 if ANY LOCKED)* |
+| **Wait for Contested Lock** | `swarmlock acquire <path> --wait <seconds> --agent "<name>" [--session "<id>"]` *(Blocks at OS level)* |
+| **Check Locks** | `swarmlock check <path1> [<path2> ...] [--wait <sec>]` *(Exits 0 if ALL FREE, 1 if ANY LOCKED)* |
 | **Batch Release Locks** | `swarmlock release <path1> [<path2> ...] --agent "<name>" [--session "<id>"]` |
 | **Clear All My Locks** | `swarmlock clear --agent "<name>" [--session "<id>"]` |
 | **Force Release** | `swarmlock release <path> --agent "<name>" --force` *(Emergency only)* |

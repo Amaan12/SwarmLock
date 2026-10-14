@@ -298,18 +298,13 @@ class LockManager:
                 except OSError:
                     pass
 
-    def acquire(
+    def _acquire_once(
         self,
         raw_path: str,
         agent: str,
         reason: str = "",
-        ttl_minutes: int = 30
+        ttl_minutes: int = 30,
     ) -> tuple[bool, Optional[Lock], str]:
-        """
-        Attempts to acquire a lock on raw_path.
-        Returns:
-            (success: bool, lock: Optional[Lock], message: str)
-        """
         display_path, norm_path, is_dir = normalize_target_path(raw_path, self.workspace_root)
         ttl_seconds = max(60, int(ttl_minutes * 60))
         my_ws = self.workspace_root.as_posix().lower()
@@ -363,6 +358,39 @@ class LockManager:
             self._save_locks(locks)
             self._log_event("ACQUIRED", display_path, agent, reason, f"ttl={ttl_minutes}m")
             return True, new_lock, f"ACQUIRED: '[{self.workspace_name}] {display_path}' locked by '{agent}' (TTL: {ttl_minutes}m)"
+
+    def acquire(
+        self,
+        raw_path: str,
+        agent: str,
+        reason: str = "",
+        ttl_minutes: int = 30,
+        timeout: float = 0.0,
+        poll_interval: float = 0.25,
+    ) -> tuple[bool, Optional[Lock], str]:
+        """
+        Attempts to acquire a lock on raw_path.
+        If timeout > 0, waits up to timeout seconds for conflicting locks to clear.
+        Returns:
+            (success: bool, lock: Optional[Lock], message: str)
+        """
+        start_time = time.time()
+        while True:
+            success, lock, msg = self._acquire_once(
+                raw_path=raw_path,
+                agent=agent,
+                reason=reason,
+                ttl_minutes=ttl_minutes,
+            )
+            if success or timeout <= 0.0:
+                return success, lock, msg
+
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                return False, lock, f"{msg} (Timed out after {timeout:.1f}s waiting for release)"
+
+            sleep_time = min(poll_interval, timeout - elapsed)
+            time.sleep(max(0.01, sleep_time))
 
     def release(
         self,
@@ -424,12 +452,7 @@ class LockManager:
         """Forcefully releases a lock regardless of holder."""
         return self.release(raw_path, agent=operator, force=True)
 
-    def check(self, raw_path: str) -> tuple[bool, Optional[Lock], str]:
-        """
-        Checks whether raw_path is free to lock or currently blocked in current workspace.
-        Returns:
-            (is_free: bool, conflicting_lock: Optional[Lock], message: str)
-        """
+    def _check_once(self, raw_path: str) -> tuple[bool, Optional[Lock], str]:
         display_path, norm_path, _ = normalize_target_path(raw_path, self.workspace_root)
         my_ws = self.workspace_root.as_posix().lower()
 
@@ -450,6 +473,31 @@ class LockManager:
                     )
 
             return True, None, "FREE"
+
+    def check(
+        self,
+        raw_path: str,
+        timeout: float = 0.0,
+        poll_interval: float = 0.25,
+    ) -> tuple[bool, Optional[Lock], str]:
+        """
+        Checks whether raw_path is free to lock or currently blocked in current workspace.
+        If timeout > 0, waits up to timeout seconds for path to become free.
+        Returns:
+            (is_free: bool, conflicting_lock: Optional[Lock], message: str)
+        """
+        start_time = time.time()
+        while True:
+            is_free, conf, msg = self._check_once(raw_path)
+            if is_free or timeout <= 0.0:
+                return is_free, conf, msg
+
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                return False, conf, f"{msg} (Timed out after {timeout:.1f}s waiting for path to be free)"
+
+            sleep_time = min(poll_interval, timeout - elapsed)
+            time.sleep(max(0.01, sleep_time))
 
     def list_locks(self, workspace_filter: Optional[str] = None) -> list[Lock]:
         """Returns active locks. If workspace_filter is None, returns ALL locks across all projects."""
