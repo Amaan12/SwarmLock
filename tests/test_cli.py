@@ -197,6 +197,26 @@ class TestAgentLockCLI(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("Agent2", chk_out)
 
+    def test_cli_acquire_wait_suffix_format(self):
+        import threading
+        import time
+
+        rc, _, _ = self.run_cli("acquire", "SuffixTest.cs", "--agent", "AgentA")
+        self.assertEqual(rc, 0)
+
+        def delayed_release():
+            time.sleep(0.2)
+            self.run_cli("release", "SuffixTest.cs", "--agent", "AgentA")
+
+        t = threading.Thread(target=delayed_release)
+        t.start()
+
+        # Pass --wait 2s (with suffix)
+        rc, out, _ = self.run_cli("acquire", "SuffixTest.cs", "--agent", "AgentB", "--wait", "2s", "--poll-interval", "0.05")
+        t.join()
+        self.assertEqual(rc, 0)
+        self.assertIn("ACQUIRED", out)
+
 
 if __name__ == "__main__":
     unittest.main()

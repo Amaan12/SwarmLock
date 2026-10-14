@@ -201,6 +201,16 @@ class TestLockCore(unittest.TestCase):
         t.join()
         self.assertTrue(is_free)
 
+    def test_parse_duration_seconds(self):
+        from swarmlock.core import parse_duration_seconds
+        self.assertEqual(parse_duration_seconds("15m"), 900.0)
+        self.assertEqual(parse_duration_seconds("1.5m"), 90.0)
+        self.assertEqual(parse_duration_seconds("30s"), 30.0)
+        self.assertEqual(parse_duration_seconds("1h"), 3600.0)
+        self.assertEqual(parse_duration_seconds("60"), 60.0)
+        self.assertEqual(parse_duration_seconds(120), 120.0)
+        self.assertEqual(parse_duration_seconds(None), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

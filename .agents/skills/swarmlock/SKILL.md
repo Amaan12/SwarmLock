@@ -40,13 +40,13 @@ If a batch lock request reveals that some files are locked while others are acqu
 
 ### 3. Contested Files at the End (CLI-Level Blocking Wait)
 Once all unblocked files have been edited, return to the remaining contested file(s) at the very end of your turn:
-- Use the `--wait <seconds>` flag (e.g. `--wait 30` or `--wait 60`) on the contested file(s).
+- Use the `--wait 15m` flag (or simply `--wait`, which defaults to 15 minutes) on the contested file(s).
 - The CLI process blocks at the OS level until the other session releases the lock, costing ZERO LLM reasoning tokens and requiring no active polling:
 ```bash
-swarmlock acquire <contested_path> --wait 30 --agent "Antigravity" --session "<session_id>"
+swarmlock acquire <contested_path> --wait 15m --agent "Antigravity" --session "<session_id>"
 ```
 - If acquired within the timeout: complete the remaining edits.
-- If it times out: report partial completion and current blockage to the user without further turn-spinning.
+- If it times out after 15 minutes: report partial completion and current blockage to the user without further turn-spinning.
 
 ### 4. Release-On-Complete (Batch Release)
 Once all edits across your task are finished and verified:
@@ -65,8 +65,8 @@ swarmlock clear --agent "Antigravity" --session "<session_id>"
 | Action | Command |
 |---|---|
 | **Batch Acquire Locks** | `swarmlock acquire <path1> [<path2> ...] --agent "Antigravity" --session "<id>" [--reason "<text>"] [--ttl <min>]` |
-| **Wait for Contested Lock** | `swarmlock acquire <path> --wait <seconds> --agent "Antigravity" --session "<id>"` *(Blocks at OS level)* |
-| **Check Status** | `swarmlock check <path1> [<path2> ...] [--wait <sec>]` *(Exit 0: FREE, Exit 1: LOCKED)* |
+| **Wait for Contested Lock** | `swarmlock acquire <path> --wait 15m --agent "Antigravity" --session "<id>"` *(Blocks at OS level)* |
+| **Check Status** | `swarmlock check <path1> [<path2> ...] [--wait 15m]` *(Exit 0: FREE, Exit 1: LOCKED)* |
 | **Batch Release Locks** | `swarmlock release <path1> [<path2> ...] --agent "Antigravity" --session "<id>"` |
 | **Clear All My Locks** | `swarmlock clear --agent "Antigravity" --session "<id>"` |
 | **Force Release** | `swarmlock release <path> --agent "Antigravity" --force` |

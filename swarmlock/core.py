@@ -205,6 +205,24 @@ def format_duration(seconds: float) -> str:
     return f"{h}h {rem_m}m"
 
 
+def parse_duration_seconds(val: Any) -> float:
+    """Parses duration into seconds from number or string with optional unit (e.g. '15m', '900s', '900', '1h', 900)."""
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip().lower()
+    if not s:
+        return 0.0
+    if s.endswith("m"):
+        return float(s[:-1]) * 60.0
+    if s.endswith("h"):
+        return float(s[:-1]) * 3600.0
+    if s.endswith("s"):
+        return float(s[:-1])
+    return float(s)
+
+
 GLOBAL_SWARMLOCK_DIR = (Path.home() / ".swarmlock").resolve()
 
 

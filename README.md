@@ -54,11 +54,11 @@ swarmlock acquire Assets/Scripts/UI/Button.cs --agent "Claude" --session "Chat1"
 swarmlock acquire Assets/Scripts/UI/Button.cs Assets/Scripts/UI/CombatHUD.cs --agent "Claude" --session "Chat1" --reason "Updating UI"
 
 # Waiting for contested locks (blocks at process level, zero LLM tokens spent polling)
-swarmlock acquire Assets/Scripts/UI/Button.cs --wait 30 --agent "Claude" --session "Chat1"
+swarmlock acquire Assets/Scripts/UI/Button.cs --wait 15m --agent "Claude" --session "Chat1"
 ```
 - If free: prints confirmation and exits with code `0`.
 - If held: prints who holds it and exits with code `1`.
-- If `--wait <sec>`: process waits at OS level for up to `<sec>` seconds until released. When returning to contested files at the end of a turn, this eliminates token-wasting polling loops.
+- If `--wait` or `--wait 15m`: process waits at OS level for up to 15 minutes (or specified duration) until released. When returning to contested files at the end of a turn, this eliminates token-wasting polling loops.
 
 ### 2. Check Lock Status
 ```bash

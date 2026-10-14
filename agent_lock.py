@@ -31,6 +31,7 @@ from swarmlock.core import (
     find_workspace_root,
     format_duration,
     normalize_target_path,
+    parse_duration_seconds,
 )
 from swarmlock.server import DEFAULT_PORT
 
@@ -145,8 +146,8 @@ def api_request(endpoint: str, data: Optional[dict] = None) -> Optional[dict]:
 def cmd_acquire(args: argparse.Namespace, manager: LockManager) -> int:
     agent_id = resolve_agent_identity(args.agent, getattr(args, "session", None))
     paths = args.paths if isinstance(args.paths, list) else [args.paths]
-    wait_sec = max(0.0, getattr(args, "wait", 0.0) or 0.0)
-    poll_int = max(0.05, getattr(args, "poll_interval", 0.25) or 0.25)
+    wait_sec = max(0.0, parse_duration_seconds(getattr(args, "wait", 0.0)))
+    poll_int = max(0.05, parse_duration_seconds(getattr(args, "poll_interval", 0.25)))
 
     if not args.no_auto_boot:
         ensure_gui_running_silently(workspace_root=manager.workspace_root)
@@ -293,8 +294,8 @@ def cmd_check(args: argparse.Namespace, manager: LockManager) -> int:
         ensure_gui_running_silently(workspace_root=manager.workspace_root)
 
     paths = args.paths if isinstance(args.paths, list) else [args.paths]
-    wait_sec = max(0.0, getattr(args, "wait", 0.0) or 0.0)
-    poll_int = max(0.05, getattr(args, "poll_interval", 0.25) or 0.25)
+    wait_sec = max(0.0, parse_duration_seconds(getattr(args, "wait", 0.0)))
+    poll_int = max(0.05, parse_duration_seconds(getattr(args, "poll_interval", 0.25)))
 
     overall_rc = 0
     for target_path in paths:
@@ -394,8 +395,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_acq.add_argument("--session", "-s", default=None, help="Unique conversation, chat, or sub-agent session ID")
     p_acq.add_argument("--reason", "-r", default="", help="Reason / task description for lock")
     p_acq.add_argument("--ttl", "-t", type=int, default=30, help="TTL in minutes (default: 30)")
-    p_acq.add_argument("--wait", "-w", type=float, default=0.0, help="Wait up to N seconds for locked files to be released (default: 0, non-blocking)")
-    p_acq.add_argument("--poll-interval", type=float, default=0.25, help="Polling interval in seconds when --wait is specified (default: 0.25)")
+    p_acq.add_argument("--wait", "-w", nargs="?", const="15m", default="0", help="Wait up to N seconds or minutes (e.g. 15m, 900, 30s; default: 15m if flag passed without value) for locked files to be released")
+    p_acq.add_argument("--poll-interval", default="0.25", help="Polling interval in seconds (default: 0.25)")
 
     # release
     p_rel = subparsers.add_parser("release", help="Release a lock on one or more files or directories")
@@ -407,8 +408,8 @@ def build_parser() -> argparse.ArgumentParser:
     # check
     p_chk = subparsers.add_parser("check", help="Check if one or more paths are free or locked")
     p_chk.add_argument("paths", nargs="+", help="One or more paths to target files or directories")
-    p_chk.add_argument("--wait", "-w", type=float, default=0.0, help="Wait up to N seconds for paths to become free (default: 0, non-blocking)")
-    p_chk.add_argument("--poll-interval", type=float, default=0.25, help="Polling interval in seconds when --wait is specified (default: 0.25)")
+    p_chk.add_argument("--wait", "-w", nargs="?", const="15m", default="0", help="Wait up to N seconds or minutes (e.g. 15m, 900, 30s; default: 15m if flag passed without value) for paths to become free")
+    p_chk.add_argument("--poll-interval", default="0.25", help="Polling interval in seconds (default: 0.25)")
 
     # list
     p_lst = subparsers.add_parser("list", help="List all active locks in terminal table")
