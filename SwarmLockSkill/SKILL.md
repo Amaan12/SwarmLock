@@ -1,6 +1,6 @@
 ---
 name: SwarmLockSkill
-description: Standalone, engine-agnostic multi-agent file locking protocol for concurrent AI assistants and sub-agents. Enforces Lock-Before-Edit, Opportunistic Pivot, and Release-On-Complete.
+description: Use ONLY when the user explicitly invokes /swarmlock (or SwarmLockSkill). Do NOT auto-trigger, suggest, or load during standard single-chat file editing.
 ---
 
 # SwarmLockSkill — Multi-Agent Coordination Protocol

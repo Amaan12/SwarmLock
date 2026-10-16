@@ -1,6 +1,6 @@
 ---
 name: swarmlock
-description: Standalone, engine-agnostic multi-agent file locking coordinator for concurrent AI coding assistants (Claude Code, Cursor, Antigravity) and sub-agents. Use this skill whenever acquiring or releasing file locks, checking lock status, or resolving edit conflicts before modifying codebase files.
+description: Use ONLY when the user explicitly invokes /swarmlock. Do NOT auto-trigger, suggest, or load during standard single-chat file editing.
 ---
 
 # SwarmLock Skill
